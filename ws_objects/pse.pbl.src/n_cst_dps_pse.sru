@@ -2,9 +2,17 @@
 forward
 global type n_cst_dps_pse from nonvisualobject
 end type
+type _psedwobjectinfo from structure within n_cst_dps_pse
+end type
 type ids_dictionary from datastore within n_cst_dps_pse
 end type
 end forward
+
+type _psedwobjectinfo from structure
+	integer		id		descriptor "comment" = "column's id. if dwo is not of type column, its value is set to null"
+	string		name		descriptor "comment" = "column's name"
+	string		dbname		descriptor "comment" = "column's dbname"
+end type
 
 global type n_cst_dps_pse from nonvisualobject autoinstantiate
 ids_dictionary ids_dictionary
@@ -33,6 +41,7 @@ constant integer	DICT_INI		= 1
 constant integer	DICT_TXT 	= 2
 constant integer	DICT_CSV 	= 3
 constant integer	DICT_XML 	= 4
+constant integer 	DICT_JSON	= 5
 
 constant integer	DIR_RW_FILES 				= 0
 constant integer	DIR_RO_FILES		 			= 1
@@ -207,6 +216,8 @@ public function string filetostring (string as_filename, string as_eol_separator
 public function integer stringtoarray (readonly string as_source, readonly string as_delimiter, ref string as_array[])
 public function integer stringtofile (string as_filename, readonly string as_string)
 public function integer arraytostring (readonly any aa_array[], ref string as_string, string as_delimiter)
+public function integer stringtofile (string as_filename)
+public function long getdwobjects (datawindow adw_control, string as_bandname, string as_objecttype, readonly _psedwobjectinfo astr_dwobjectsinfo[])
 end prototypes
 
 public function any isnull (ref any aa_value, any aa_ifnullvalue);if isnull( aa_value ) then
@@ -1266,7 +1277,12 @@ if this.ismissing( ai_filetype ) then
 		case "XML"
 			ai_filetype = dict_xml
 		case else
-			return -1
+			choose case Upper(Right(as_filename,4))
+				case 'JSON'
+					ai_filetype = dict_json
+				case else
+					return -1
+			end choose
 	end choose
 end if
 
@@ -1301,6 +1317,10 @@ choose case ai_filetype
 		lsat_type = csv!
 	case dict_xml
 		lsat_type = xml!
+	case dict_json
+		// save entries in json format
+		ls_value = ads_dictionary.exportjson(  )
+		ll_i = stringtofile( as_filename )		
 end choose
 
 return ads_dictionary.saveas( as_filename, lsat_type, false )
@@ -2037,6 +2057,51 @@ as_string = ls_tmp
 
 return li_limit
 
+end function
+
+public function integer stringtofile (string as_filename);// Syntax2
+return this.stringtofile( as_filename, null_string)
+end function
+
+public function long getdwobjects (datawindow adw_control, string as_bandname, string as_objecttype, readonly _psedwobjectinfo astr_dwobjectsinfo[]);integer	li_id
+long 	ll_i
+long	ll_limit
+long	ll_count
+string ls_bandname
+string ls_dwobjects[]
+string ls_name
+string ls_dbname
+string ls_type
+
+if this.isnullorinvalid( adw_control ) then return -1
+if this.ismissing( adw_control.dataobject ) then return -1
+
+ll_limit = this.stringtoarray( adw_control.object.datawindow.objects, '~t', ls_dwobjects )
+if  ll_limit = 0 then return 0
+
+ll_count = 0
+for ll_i = 1 to ll_limit
+	ls_bandname = adw_control.describe( ls_dwobjects[ll_i] + '.bandname' )
+	if lower( trim( as_bandname ) ) = 'all' or ls_bandname = as_bandname then
+		ls_type = adw_control.describe( ls_dwobjects[ll_i] + '.type' )
+		if lower( trim( as_objecttype) ) = 'all' or ls_type = as_objecttype then
+			ls_name = adw_control.describe( ls_dwobjects[ll_i] + '.name' )
+			if ls_type = 'column' then
+				ls_dbname = adw_control.describe( ls_dwobjects[ll_i] + '.dbname' )
+				li_id = integer( adw_control.describe( ls_dwobjects[ll_i] + '.id' ) )
+			else
+				SetNull( ls_dbname )
+				setNull( li_id )
+			end if
+			ll_count ++
+			astr_dwobjectsinfo[ll_count].id = li_id
+			astr_dwobjectsinfo[ll_count].name = ls_name
+			astr_dwobjectsinfo[ll_count].dbname = ls_dbname
+		end if
+	end if
+next
+
+return ll_count
 end function
 
 on n_cst_dps_pse.create
